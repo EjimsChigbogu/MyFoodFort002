@@ -35,7 +35,7 @@
         <div class="card">
             <img src="{{ row.Product_Image_URL }}" alt="Product Image">
             <h3>{{ row.Product_Name }}</h3>
-            <p>Price: ${{ row.Product_Price }}</p>
+            <p>Price: ₦{{ row.Product_Price }}</p>
             <p>Category: {{ row.Product_Category }}</p>
         </div>
         {% endfor %}
@@ -48,7 +48,7 @@
             <div class="card">
                 <img src="{{ row.Product_Image_URL }}" alt="Product Image">
                 <h3>{{ row.Product_Name }}</h3>
-                <p>Price: Rs.{{ row.Product_Price }}</p>
+                <p>Price: ₦{{ row.Product_Price }}</p>
                 <p>Category: {{ row.Product_Category }}</p>
             </div>
             {% endfor %}
