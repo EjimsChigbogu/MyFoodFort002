@@ -76,6 +76,14 @@ class Order(models.Model):
     product_All_quantity = models.TextField(blank=True, null=True)
 
 
+class ProductView(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    product_id = models.IntegerField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"User {self.user_id} viewed Product {self.product_id}"
+
 
 class Discount_data(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
