@@ -5,7 +5,7 @@ def load_data_and_train():
     from django.conf import settings
 
     rules_csv = os.path.join(
-        settings.BASE_DIR, "static", "csv", "association_rules.csv"
+        settings.BASE_DIR,"egroceryapp", "static", "csv", "association_rules.csv"
     )
     rules = pd.read_csv(rules_csv)
     # maybe cache them or load into your model

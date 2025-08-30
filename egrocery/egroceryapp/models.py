@@ -53,7 +53,7 @@ class EcommerceCsv(models.Model):
 
 class add_To_Cart(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    prodcut_Id_Add = models.CharField(max_length=255, default=None)
+    product_Id_Add = models.CharField(max_length=255, default=None)
     quantity = models.IntegerField(default=None)  
     product_price = models.IntegerField(default=None)  
     subtotal_price = models.IntegerField(default=None)  

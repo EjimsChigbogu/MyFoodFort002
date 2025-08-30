@@ -45,7 +45,7 @@ def get_cart_details(user):
     details = []
     for item in cart_data:
         product = data_cleaned[
-            data_cleaned["Product_detail_id"] == str(item.prodcut_Id_Add)
+            data_cleaned["Product_detail_id"] == str(item.product_Id_Add)
         ]
         if not product.empty:
             details.extend(product.to_dict("records"))
@@ -59,19 +59,108 @@ def cart_total_price(user):
     return total
 
 
-def get_recommendations(product, rules_df=None):
+# Optional light synonym map you can extend
+SYNONYMS = {
+    "juicers": "juicer",
+    "juice extractor": "juicer",
+    "skin-care": "skin care",
+    "skincare": "skin care",
+}
+
+def normalize_text(s: str) -> str:
+    if pd.isna(s):
+        return ""
+    s = s.lower().strip()
+    s = re.sub(r"[\W_]+", " ", s)          # keep letters/numbers as words
+    s = re.sub(r"\s+", " ", s).strip()
+    s = SYNONYMS.get(s, s)
+    # naive singularization: “juicers” -> “juicer”
+    if len(s) > 3 and s.endswith("s") and not s.endswith("ss"):
+        s = s[:-1]
+    return s
+
+def ensure_normalized_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if "name_norm" not in df.columns:
+        df["name_norm"] = df["Product_Name"].fillna("").map(normalize_text)
+    if "category_norm" not in df.columns:
+        df["category_norm"] = df["Product_Category"].fillna("").map(normalize_text)
+    return df
+
+def word_boundary_regex(raw_query: str) -> str:
+    # \b around the raw query to avoid partial nonsense matches
+    q = raw_query.strip()
+    if not q:
+        return r"$^"
+    return rf"\b{re.escape(q)}\b"
+
+
+def get_recommendations(product, rules_df=None, current_product_id=None, data=None):
+    """
+    product: current product category/name to find rules for
+    rules_df: dataframe containing association rules
+    current_product_id: id of the current product (to exclude from results)
+    data: product dataframe (so we can map ids <-> names if needed)
+    """
     rules_df = rules_df or rules
     if rules_df.empty:
         return []
+
+    # filter strong rules
     filtered = rules_df[(rules_df["confidence"] > 0.5) & (rules_df["lift"] > 1)]
+
+    # only keep rules where the current product is in the antecedents
     product_rules = filtered[filtered["antecedents"].apply(lambda x: product in x)]
-    return list(set(product_rules["consequents"].explode().tolist()))
+
+    # get all recommended products
+    recommended = list(set(product_rules["consequents"].explode().tolist()))
+
+    # exclude current product name
+    recommended = [r for r in recommended if r != product]
+
+    # exclude by id if we have the mapping (optional)
+    if current_product_id is not None and data is not None:
+        # get the current product row
+        current_row = data[data["Product_detail_id"] == current_product_id]
+        if not current_row.empty:
+            current_name = current_row.iloc[0]["Product_Name"]
+            recommended = [r for r in recommended if r != current_name]
+
+    return recommended
 
 
-def get_similar_products(query, knn_model, vectorizer):
-    query_vector = vectorizer.transform([query])
-    _, indices = knn_model.kneighbors(query_vector)
-    return data_cleaned.iloc[indices[0]]
+
+def get_similar_products(query, knn_model, vectorizer, current_product_id=None):
+    """
+    Return KNN similar products, EXCLUDING the exact product being viewed.
+    """
+    query_str = "" if pd.isna(query) else str(query)
+    query_vec = vectorizer.transform([query_str])
+
+    k = getattr(knn_model, "n_neighbors", 24)
+    try:
+        distances, indices = knn_model.kneighbors(query_vec, n_neighbors=k + 5)
+    except Exception:
+        distances, indices = knn_model.kneighbors(query_vec)
+
+    idxs = list(indices[0])
+    sims = data_cleaned.iloc[idxs].copy()
+
+    # Exclude the product currently being viewed by ID (preferred)
+    if current_product_id and "Product_detail_id" in sims.columns:
+        sims = sims[sims["Product_detail_id"] != current_product_id]
+    else:
+        # fallback to name-based exclusion
+        q_norm = query_str.strip().lower()
+        sims = sims[~sims["Product_Name"].astype(str).str.strip().str.lower().eq(q_norm)]
+
+    # Drop duplicates
+    if "Product_detail_id" in sims.columns:
+        sims = sims.drop_duplicates(subset=["Product_detail_id"], keep="first")
+    else:
+        sims = sims.drop_duplicates(subset=["Product_Name", "Product_Image_URL"], keep="first")
+
+    return sims.head(k)
+
 
 
 # -------------------------
@@ -104,75 +193,140 @@ def index(request):
 def suggestion(request):
     return render(request, "suggestion.html")
 
-def search_suggestion_for_all(values):
-    values_for_recomd = values
-    all_recommendations = set()
-    matching_products_random_list = []  # Initialize outside the loop
+def search_suggestion_for_all(categories):
+    """
+    Get recommended products for a list of categories.
+    Returns full product rows (list of dicts).
+    """
+    all_rows = []
+    for cat in categories:
+        rows = get_recommendations(cat, data=data_cleaned)
+        if rows:
+            all_rows.extend(rows)
 
-    for category in values_for_recomd:
-        category_recommendations = get_recommendations(category)
-        all_recommendations.update(category_recommendations)
+    if not all_rows:
+        return []
 
-    # Extract only frozenset values
-    recommended_values = set(all_recommendations)
-    lists = [
-        ast.literal_eval(s.replace("frozenset(", "[").replace(")", "]"))
-        for s in recommended_values
-    ]
-    flattened_list = [item for sublist in lists for item in sublist]
-    final_list = [list(item) for item in flattened_list]
+    df = pd.DataFrame(all_rows)
 
-    # Convert each sublist to a string
-    result_list = ["+".join(sublist) for sublist in final_list]
+        # ✅ Only deduplicate if Product_detail_id exists
+    if "Product_detail_id" in df.columns:
+        df = df.drop_duplicates(subset=["Product_detail_id"])
+    else:
+        df = df.drop_duplicates()
 
-    # Convert the numpy array to a Python list
-    flattened_list1 = (
-        result_list if isinstance(result_list, list) else flattened_list.tolist()
-    )
+    # Limit or shuffle if you want (example: show up to 12 random recommendations)
+    if len(df) > 12:
+        df = df.sample(n=12, random_state=42)
 
-    matching_products_random = data_cleaned[
-        data_cleaned["Product_Category"].isin(flattened_list1)
-    ]
+    return df.to_dict(orient="records")
 
-    matching_products_random = matching_products_random.sample(frac=0.5).reset_index(
-        drop=True
-    )
 
-    matching_products_random_list = matching_products_random.to_dict(orient="records")
+# def search_results_suggestion(request):
+#     query = request.GET.get("query", "").strip()
 
-    return matching_products_random_list
+#     # 🔎 Debug: check what columns exist in your data_cleaned dataframe
+#     print("COLUMNS IN data_cleaned:", list(data_cleaned.columns))
+
+#     if not query:
+#         return render(request, "shop.html", {
+#             "query": "",
+#             "results": [],
+#             "recommended_products": [],
+#             "similar_products": [],
+#         })
+
+#     # Search for matching products by name or category (case-insensitive)
+#     matching_products = data_cleaned[
+#         (data_cleaned["Product_Name"].str.contains(query, case=False, na=False)) |
+#         (data_cleaned["Product_Category"].str.contains(query, case=False, na=False))
+#     ]
+
+#     # Default values
+#     results = []
+#     recommended_products = []
+#     similar_products = []
+
+#     if not matching_products.empty:
+#         # Main search results (only the products that match the query)
+#         results = matching_products.to_dict("records")
+
+#         # Get unique categories from results
+#         unique_categories = matching_products["Product_Category"].dropna().unique()
+
+#         # Recommendations from those categories
+#         recommended_products = search_suggestion_for_all(unique_categories)
+
+#         # Remove any recommended product already in results
+#         if recommended_products:
+#             rec_df = pd.DataFrame(recommended_products)
+#             # Exclude already matched products from recommendations (only if ID column exists)
+#             if "Product_detail_id" in rec_df.columns and "Product_detail_id" in matching_products.columns:
+#                 rec_df = rec_df[~rec_df["Product_detail_id"].isin(matching_products["Product_detail_id"])]
+#             recommended_products = rec_df.to_dict("records")
+
+#         # Similar products using KNN (optional: based on first match)
+#         first_product = matching_products.iloc[0]
+#         sim_df = get_similar_products(
+#             first_product["Product_Name"], knn_model, vectorizer,
+#             current_product_id=first_product["Product_detail_id"]
+#         )
+#         if hasattr(sim_df, "to_dict"):
+#             similar_products = sim_df.to_dict("records")
+
+#     context = {
+#         "query": query,
+#         "results": results,                   # ✅ use this in template for main grid
+#         "recommended_products": recommended_products,  # ✅ use in sidebar or "you may also like"
+#         "similar_products": similar_products, # ✅ optional
+#     }
+
+#     return render(request, "shop.html", context)
 
 def search_results_suggestion(request):
-    query = request.GET.get("query", "")
+    query = request.GET.get("query", "").strip()
 
-    # Search for matching products based on both name and category
+    # Debug: show what was searched
+    print("SEARCH QUERY:", query)
+
+    # Search for matching products by product name OR category
     matching_products = data_cleaned[
-        (data_cleaned["Product_Name"].str.contains(query, case=False))
-        | (data_cleaned["Product_Category"].str.contains(query, case=False))
-    ]
+        (data_cleaned["Product_Name"].str.contains(query, case=False, na=False))
+        | (data_cleaned["Product_Category"].str.contains(query, case=False, na=False))
+    ].copy()
+
+    # If matches found
     if not matching_products.empty:
-        # Get the unique product categories for the matching products
+        # ✅ Always show products in that category (main result)
         unique_categories = matching_products["Product_Category"].unique()
-        # print(unique_categories)
-        matching_products_random = search_suggestion_for_all(unique_categories)
-        # Collect recommendations for each unique category
-        # print(matching_products_random)
+        print("MATCHED CATEGORIES:", unique_categories)
 
-        # Store matching_products_random in the session
-        request.session["matching_products_random"] = matching_products_random
+        # Get recommendations for those categories
+        rec_products = search_suggestion_for_all(unique_categories)
 
+        # Convert rec_products to DataFrame if needed
+        rec_df = pd.DataFrame(rec_products)
+
+        # Avoid excluding all results — just keep recommendations separate
+        if not rec_df.empty and "Product_detail_id" in rec_df.columns:
+            rec_df = rec_df[~rec_df["Product_detail_id"].isin(matching_products["Product_detail_id"])]
+
+        matching_products_random = rec_df.to_dict(orient="records") if not rec_df.empty else []
     else:
-        # If no matching products, set recommendations and matching_products_random to empty
-        # recommended_values = set()
-        matching_products_random = pd.DataFrame()
+        # No results found
+        matching_products = pd.DataFrame()
+        matching_products_random = []
 
-    # Get similar products using KNN
+    # Get similar products using KNN (optional boost)
     similar_products = get_similar_products(query, knn_model, vectorizer)
-    print(similar_products)
+    print("SIMILAR PRODUCTS:", similar_products.shape)
+
+
     context = {
         "query": query,
+        "matching_products": matching_products.to_dict(orient="records"),
         "matching_products_random": matching_products_random,
-        "similar_products": similar_products,
+        "similar_products": similar_products.to_dict(orient="records") if not similar_products.empty else [],
     }
 
     return render(request, "shop.html", context)
@@ -193,9 +347,23 @@ def single_product(request, Product_detail_id):
     product = data_cleaned[data_cleaned["Product_detail_id"] == Product_detail_id]
     if product.empty:
         return render(request, "product_not_found.html")
+
     p = product.iloc[0]
-    similar = get_similar_products(p["Product_Name"], knn_model, vectorizer)
-    recommendations = get_recommendations(p["Product_Category"])
+
+    # 🔥 Pass current product id so it’s excluded from results
+    similar = get_similar_products(
+        p["Product_Name"], 
+        knn_model, 
+        vectorizer, 
+        current_product_id=p["Product_detail_id"]
+    )
+
+    # recommendations = get_recommendations(p["Product_Category"])
+    recommendations = get_recommendations(
+        p["Product_Category"],
+        current_product_id=p["Product_detail_id"],
+        data=data_cleaned
+    )
     context = {
         "product_name": p["Product_Name"],
         "product_category": p["Product_Category"],
@@ -203,9 +371,8 @@ def single_product(request, Product_detail_id):
         "product_Image_URL": p["Product_Image_URL"],
         "Product_dtl_id": p["Product_detail_id"],
         "Product_dtl_rating": p["rating"],
-        "matching_products_random": similar.to_dict("records")
-        if not similar.empty
-        else [],
+        "matching_products_random": similar.to_dict("records") if not similar.empty else [],
+        "recommendations": recommendations
     }
     return render(request, "single_product.html", context)
 
@@ -302,19 +469,27 @@ def add_to_cart_dbs(request, productID):
         form = AddToCartForm(request.POST)
         if form.is_valid():
             user = request.user
-            if not add_To_Cart.objects.filter(
-                user=user, prodcut_Id_Add=productID
-            ).exists():
+            quantity = form.cleaned_data.get("quantity")
+            price = form.cleaned_data.get("product_price")
+
+            try:
+                cart_item = add_To_Cart.objects.get(user=user, product_Id_Add=productID)  # FIX typo
+                cart_item.quantity += quantity
+                cart_item.product_price = price
+                cart_item.save()
+                return JsonResponse({"message": "Item quantity updated successfully."})
+            except add_To_Cart.DoesNotExist:
                 add_To_Cart.objects.create(
                     user=user,
-                    prodcut_Id_Add=productID,
-                    quantity=form.cleaned_data["quantity"],
-                    product_price=form.cleaned_data["product_price"],
+                    product_Id_Add=productID,
+                    quantity=quantity,
+                    product_price=price,
                 )
-                return JsonResponse({"message": "Item Added Successfully."})
-            return JsonResponse({"error": "Item already in Cart."}, status=400)
-        return JsonResponse({"error": "Invalid form data"}, status=400)
+                return JsonResponse({"message": "Item added successfully."})
+        else:
+            return JsonResponse({"error": form.errors}, status=400)
     return JsonResponse({"error": "Invalid request"}, status=400)
+
 
 
 @login_required
@@ -379,25 +554,32 @@ def cart(request):
         },
     )
 
-
 @require_POST
 @login_required
-def update_cart_item(request):
-    cart_item_id = request.POST.get("cart_item_id")
-    new_quantity = request.POST.get("new_quantity")
-    try:
-        item = add_To_Cart.objects.get(prodcut_Id_Add=cart_item_id, user=request.user)
-        item.quantity = new_quantity
-        item.save()
-        return JsonResponse(
-            {
-                "success": True,
-                "new_subtotal": item.subtotal_price,
-                "new_total_price": cart_total_price(request.user),
-            }
-        )
-    except add_To_Cart.DoesNotExist:
-        return JsonResponse({"success": False, "error": "Item not found"})
+def update_cart_item(request, item_id):
+    if request.method == "POST":
+        try:
+            cart_item = add_To_Cart.objects.get(id=item_id, user=request.user)
+            data = json.loads(request.body)
+            new_quantity = int(data.get("quantity", 1))
+
+            if new_quantity > 0:
+                cart_item.quantity = new_quantity
+                # 👇 Recalculate subtotal based on product price × quantity
+                cart_item.subtotal_price = cart_item.product_price * cart_item.quantity
+                cart_item.save()
+                return JsonResponse({
+                    "message": "Cart updated successfully",
+                    "new_subtotal": cart_item.subtotal_price,
+                })
+            else:
+                cart_item.delete()
+                return JsonResponse({"message": "Item removed from cart"})
+
+        except add_To_Cart.DoesNotExist:
+            return JsonResponse({"error": "Cart item not found"}, status=404)
+
+    return JsonResponse({"error": "Invalid request"}, status=400)
 
 
 @require_POST
@@ -405,7 +587,7 @@ def update_cart_item(request):
 def delete_cart_item(request):
     cart_item_id = request.POST.get("cart_item_id")
     try:
-        item = add_To_Cart.objects.get(prodcut_Id_Add=cart_item_id, user=request.user)
+        item = add_To_Cart.objects.get(product_Id_Add=cart_item_id, user=request.user)
         item.delete()
         return JsonResponse({"success": True})
     except add_To_Cart.DoesNotExist:
@@ -423,7 +605,7 @@ def get_cart_data(request):
 
     for value in cart_dtl_data:
         cart_id = value["Product_detail_id"]
-        matching_items = cart_data.filter(prodcut_Id_Add=int(cart_id))
+        matching_items = cart_data.filter(product_Id_Add=int(cart_id))
 
         for item in matching_items:
             context_list.append(
@@ -482,7 +664,7 @@ def handle_successful_purchase(request):
     new_order.total_price = (
         cart_items.aggregate(Sum("subtotal_price"))["subtotal_price__sum"] or 0
     )
-    new_order.products = ",".join(str(i.prodcut_Id_Add) for i in cart_items)
+    new_order.products = ",".join(str(i.product_Id_Add) for i in cart_items)
     new_order.product_All_quantity = ",".join(str(i.quantity) for i in cart_items)
     new_order.save()
     cart_items.delete()

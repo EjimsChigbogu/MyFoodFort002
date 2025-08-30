@@ -31,20 +31,23 @@
 <body>
     <div>
 
-        {% for index, row in matching_products_random.iterrows %}
-        <div class="card">
-            <img src="{{ row.Product_Image_URL }}" alt="Product Image">
-            <h3>{{ row.Product_Name }}</h3>
-            <p>Price: ₦{{ row.Product_Price }}</p>
-            <p>Category: {{ row.Product_Category }}</p>
-        </div>
-        {% endfor %}
+     {% for row in results %}
+<div class="card">
+    <img src="{{ row.Product_Image_URL }}" alt="Product Image">
+    <h3>{{ row.Product_Name }}</h3>
+    <p>Price: ₦{{ row.Product_Price }}</p>
+    <p>Category: {{ row.Product_Category }}</p>
+</div>
+{% empty %}
+<p>No matching products found.</p>
+{% endfor %}
+
     </div>
     <div>
 
         <h1> Similar product</h1>
         <div>
-            {% for index, row in similar_products.iterrows %}
+           {% for row in similar_products %}
             <div class="card">
                 <img src="{{ row.Product_Image_URL }}" alt="Product Image">
                 <h3>{{ row.Product_Name }}</h3>
@@ -54,6 +57,36 @@
             {% endfor %}
         </div>
     </div>
+
+    <div>
+        <h1>You may also like</h1>
+<div>
+    {% for row in recommended_products %}
+    <div class="card">
+        <img src="{{ row.Product_Image_URL }}" alt="Product Image">
+        <h3>{{ row.Product_Name }}</h3>
+        <p>Price: ₦{{ row.Product_Price }}</p>
+        <p>Category: {{ row.Product_Category }}</p>
+    </div>
+    {% endfor %}
+</div>
+
+<div>
+    <!-- Recommended products -->
+    {% if recommended_products %}
+    <h3>You May Also Like</h3>
+    <div class="grid">
+        {% for row in recommended_products %}
+        <div class="card">
+            <img src="{{ row.Product_Image_URL }}" alt="Product Image">
+            <h3>{{ row.Product_Name }}</h3>
+            <p>Price: ₦{{ row.Product_Price }}</p>
+            <p>Category: {{ row.Product_Category }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
 </body>
 
 </html>

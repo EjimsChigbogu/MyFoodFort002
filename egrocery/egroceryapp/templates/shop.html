@@ -10,51 +10,10 @@
       
 
       <main class="col-md-10 ">
-        
-
+    
         <div class="product-grid row row-cols-sm-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4">
-          {% if data_to_display|length > 0 %}
-          {% for index, row in data_to_display.iterrows %}
-          <div class="col">
-            <div class="product-item">
-              <!-- <a href="#" class="btn-wishlist"><svg width="24" height="24">
-                        <use xlink:href="#heart"></use>
-                    </svg></a> -->
-              <figure class="text-center">
-                <a href="{% url 'single_product' row.Product_detail_id %}" title="Product Title">
-                  <img src="{{ row.Product_Image_URL }}" class="figure-img img-fluid rounded"
-                    style="min-height: 200px;">
-                </a>
-              </figure>
-              <h3 class="text-truncate" style="max-width: 200px;">{{ row.Product_Name }}
-              </h3>
-              <span class="qty">{{ row.Product_Category }}</span>
-              <!-- <span class="rating"><svg
-                        width="24" height="24" class="text-primary">
-                        <use xlink:href="#star-solid"></use>
-                    </svg> 4.5</span> -->
-              <span class="price">₦ {{row.Product_Price}}</span>
-              <div class="d-flex align-items-center justify-content-between">
-                <div>
-                  <form method="POST" class="wishlist-form" data-product-id="{{ row.Product_detail_id }}" novalidate>
-                    {% csrf_token %}
-                    <!-- Updated hidden input field for quantity -->
-                    <input type="hidden" name="quantity" class="form-control input-number" value="1">
-                    <input type="hidden" name="product_price" class="form-control input-number"
-                      value="{{row.Product_Price}}">
-                    <button class=" add-to-cart-button btn btn-dark py-2 px-3 text-uppercase btn-rounded-none"
-                      type="button">Add to
-                      Cart
-                      <iconify-icon icon="uil:shopping-cart"></iconify-icon>
-                    </button>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-          {% else %}
-          {% for index, row in similar_products.iterrows %}
+          {% if matching_products|length > 0 %}
+          {% for row in matching_products %}
           <div class="col">
             <div class="product-item">
               <!-- <a href="#" class="btn-wishlist"><svg width="24" height="24">
@@ -94,8 +53,47 @@
           </div>
           {% endfor %}
           {% endif %}
+          
 
-
+          {% if matching_products_random|length > 0 %}
+          <h2 class="my-5">Recommended Products</h2>
+          <div class="product-grid row row-cols-sm-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4">
+            {% for index, row in matching_products_random.iterrows %}
+            <div class="col">
+              <div class="product-item">
+                <figure class="text-center">
+                  <a href="{% url 'single_product' row.Product_detail_id %}">
+                    <img src="{{ row.Product_Image_URL }}" class="figure-img img-fluid rounded" style="min-height: 200px;">
+                  </a>
+                </figure>
+                <h3 class="text-truncate" style="max-width: 200px;">{{ row.Product_Name }}</h3>
+                <span class="qty">{{ row.Product_Category }}</span>
+                <span class="price">₦ {{ row.Product_Price }}</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          
+          {% if similar_products|length > 0 %}
+          <h2 class="my-5">Similar Products</h2>
+          <div class="product-grid row row-cols-sm-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4">
+            {% for index, row in similar_products.iterrows %}
+            <div class="col">
+              <div class="product-item">
+                <figure class="text-center">
+                  <a href="{% url 'single_product' row.Product_detail_id %}">
+                    <img src="{{ row.Product_Image_URL }}" class="figure-img img-fluid rounded" style="min-height: 200px;">
+                  </a>
+                </figure>
+                <h3 class="text-truncate" style="max-width: 200px;">{{ row.Product_Name }}</h3>
+                <span class="qty">{{ row.Product_Category }}</span>
+                <span class="price">₦ {{ row.Product_Price }}</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
 
         </div>
         <!-- / product-grid -->

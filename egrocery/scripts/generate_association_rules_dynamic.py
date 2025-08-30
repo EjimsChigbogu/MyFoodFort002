@@ -8,11 +8,8 @@ from mlxtend.preprocessing import TransactionEncoder
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Set up Django
-os.environ.setdefault(
-    "DJANGO_SETTINGS_MODULE", "egrocery.settings"
-)
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "egrocery.settings")
 import django
-
 django.setup()
 
 # Now safe to import Django models and utils
@@ -21,8 +18,8 @@ from egroceryapp.models import Order
 from egroceryapp.utils import load_data_and_train
 
 # Paths to CSV files
-csv_file_path = os.path.join(settings.BASE_DIR,"egroceryapp", "static", "csv", "nwfilevsc.csv")
-rules_csv = os.path.join(settings.BASE_DIR,"egroceryapp", "static", "csv", "association_rules.csv")
+csv_file_path = os.path.join(settings.BASE_DIR, "egroceryapp", "static", "csv", "nwfilevsc.csv")
+rules_csv = os.path.join(settings.BASE_DIR, "egroceryapp", "static", "csv", "association_rules.csv")
 
 # Ensure CSV folders exist
 os.makedirs(os.path.dirname(csv_file_path), exist_ok=True)
@@ -46,40 +43,45 @@ def generate_association_rules(transaction_data=None):
         print(f"Error loading CSV: {e}")
         return
 
-    # Build transactions from Order model if not provided
-    if transaction_data is None:
-        transaction_data = []
-        try:
-            orders = Order.objects.all()
-            for order in orders:
-                if order.products:
-                    product_ids = [
-                        int(pid) for pid in order.products.split(",") if pid.isdigit()
-                    ]
-                    categories = (
-                        data_cleaned[
-                            data_cleaned["Product_detail_id"].isin(product_ids)
-                        ]["Product_Category"]
-                        .unique()
-                        .tolist()
-                    )
-                    if categories:
-                        transaction_data.append(categories)
-        except Exception as e:
-            print(f"Error fetching orders: {e}")
-            # fallback to dummy transactions
+    # Build transactions from Orders, otherwise fallback to CSV categories
+    transaction_data = []
+    try:
+        orders = Order.objects.all()
+        for order in orders:
+            if order.products:
+                product_ids = [
+                    int(pid) for pid in order.products.split(",") if pid.isdigit()
+                ]
+                categories = (
+                    data_cleaned[data_cleaned["Product_detail_id"].isin(product_ids)]["Product_Category"]
+                    .unique()
+                    .tolist()
+                )
+                if categories:
+                    transaction_data.append(categories)
+
+        if not transaction_data:  # Fallback if no order-based transactions
+            print("⚠️ No valid transactions from orders. Falling back to CSV categories...")
             categories = data_cleaned["Product_Category"].unique()
             transaction_data = [
                 [cat1, cat2]
                 for i, cat1 in enumerate(categories)
                 for cat2 in categories[i + 1 :]
             ]
+    except Exception as e:
+        print(f"Error fetching orders, using CSV fallback: {e}")
+        categories = data_cleaned["Product_Category"].unique()
+        transaction_data = [
+            [cat1, cat2]
+            for i, cat1 in enumerate(categories)
+            for cat2 in categories[i + 1 :]
+        ]
 
     if not transaction_data:
-        print("No transactions available. Exiting.")
+        print("❌ Still no transactions available. Exiting.")
         return
 
-    # One-hot encode transactions using TransactionEncoder (faster & safer)
+    # One-hot encode transactions
     te = TransactionEncoder()
     transaction_matrix = te.fit(transaction_data).transform(transaction_data)
     transaction_df = pd.DataFrame(transaction_matrix, columns=te.columns_)
@@ -88,7 +90,7 @@ def generate_association_rules(transaction_data=None):
     try:
         frequent_itemsets = apriori(transaction_df, min_support=0.01, use_colnames=True)
         if frequent_itemsets.empty:
-            print("No frequent itemsets found. Try lowering min_support.")
+            print("⚠️ No frequent itemsets found. Try lowering min_support.")
             return
     except Exception as e:
         print(f"Error generating frequent itemsets: {e}")
@@ -98,7 +100,7 @@ def generate_association_rules(transaction_data=None):
     try:
         rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1)
         if rules.empty:
-            print("No association rules generated. Try adjusting thresholds.")
+            print("⚠️ No association rules generated. Try adjusting thresholds.")
             return
     except Exception as e:
         print(f"Error generating association rules: {e}")
@@ -107,14 +109,14 @@ def generate_association_rules(transaction_data=None):
     # Save rules to CSV
     try:
         rules.to_csv(rules_csv, index=False)
-        print(f"Association rules saved to {rules_csv}")
+        print(f"✅ Association rules saved to {rules_csv}")
     except Exception as e:
         print(f"Error saving rules CSV: {e}")
         return
 
     # Reload rules into memory
     load_data_and_train()
-    print("Rules loaded into memory successfully.")
+    print("✅ Rules loaded into memory successfully.")
 
 
 if __name__ == "__main__":

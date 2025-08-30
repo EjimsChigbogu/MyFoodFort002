@@ -65,7 +65,7 @@
                 <td class="py-4">
                   <div class="total-price">
                     <span class="money text-dark subtotal"
-                      data-cart-item-id="{{ cart_user_data.item.prodcut_Id_Add }}">₹
+                      data-cart-item-id="{{ cart_user_data.item.prodcut_Id_Add }}">₦
                       {{cart_user_data.item.subtotal_price }} </span>
                   </div>
                 </td>
@@ -102,7 +102,7 @@
                   <td data-title="Total">
                     <span class="price-amount amount text-dark ps-5">
 
-                      <span class="price-currency-symbol total_price_of_cart">₹ {{ total_price }}</span>
+                      <span class="price-currency-symbol total_price_of_cart">₦ {{ total_price }}</span>
                     </span>
                   </td>
                 </tr>
@@ -116,10 +116,10 @@
                   <td data-title="Total">
                     <span class="price-amount amount text-dark ps-5">
                       {% if  discounted_price %}
-                      <span class="price-currency-symbol discount_price_col" style="color: green;">₹
+                      <span class="price-currency-symbol discount_price_col" style="color: green;">₦
                         {{discounted_price}}</span>
                         {% else %}
-                        <span class="price-currency-symbol discount_price_col" style="color: green;">₹
+                        <span class="price-currency-symbol discount_price_col" style="color: green;">₦
                           0</span>
                         {% endif %}
                     </span>
@@ -130,7 +130,7 @@
                   <td data-title="Total">
                     <span class="price-amount amount text-dark ps-5">
 
-                      <span class="price-currency-symbol ">₹ {{grand_totalPrice }}</span>
+                      <span class="price-currency-symbol ">₦ {{grand_totalPrice }}</span>
                     </span>
 
 
